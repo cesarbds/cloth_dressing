@@ -14,10 +14,11 @@ from torch.utils.tensorboard import SummaryWriter
 import wandb
 from stable_baselines3.common.buffers import ReplayBuffer
 from TD3_cleanrl.td3_cleanrl import *
+import queue
 
 
 class TD3_agent():
-    def __init__(self, env, action_queue, obs_queue, start_queue, action_lock, obs_lock, start_lock,
+    def __init__(self, env, action_queue, obs_queue, start_queue, reset_queue, action_lock, obs_lock, start_lock,
                  batch_size = 128,  gamma: float = 0.99, buffer_size: int = int(1e5),
                  learning_rate = 3e-4, tau: float = 0.005, policy_frequency: int = 2, exploration_noise: float = 0.1,
                  save_model: bool = True, enable_logging: bool = False, learning_starts: int = 1e3,
@@ -32,6 +33,7 @@ class TD3_agent():
         self.action_queue = action_queue
         self.obs_queue = obs_queue
         self.start_queue = start_queue
+        self.reset_queue = reset_queue
         self.action_lock = action_lock
         self.obs_lock = obs_lock
         self.start_lock = start_lock
@@ -45,6 +47,7 @@ class TD3_agent():
                 name=run_name,
                 monitor_gym=True,
                 save_code=True,
+                seed = seed
             )
             self.writer = SummaryWriter(f"runs/{run_name}")
             self.writer.add_text(
@@ -70,6 +73,7 @@ class TD3_agent():
         self.buffer_size = buffer_size
         self.batch_size  = batch_size
         self.learning_rate = learning_rate
+        self.gamma = gamma
         self.tau = tau
         self.policy_frequency = policy_frequency
         self.exploration_noise = exploration_noise
@@ -101,18 +105,29 @@ class TD3_agent():
         )
         start_time = time.time()
         # TRY NOT TO MODIFY: start the game
-        #obs, _, state = self.env.reset(seed=self.seed)
+        
+        
         start = False
         while  start  == False:
-            time.sleep(0.1)
+            time.sleep(0.0001)
             with self.start_lock:
                 try:
-                    print(self.start_queue.get(block=False, timeout=1))
-                    if self.start_queue.get(block=False, timeout=1) == 1:
+                    if self.start_queue.get(timeout=.01) == 1:
                         start = True
                         self.start_queue.put(0)
-                except:
-                    continue
+                except queue.Empty:
+                    #print("Fila de ações está vazia, aguardando...")
+                    a=1#continue  # Tente novamente
+        wait = True
+        while wait:
+                time.sleep(0.0001)
+                with self.obs_lock:
+                    try:
+                        obs = self.reset_queue.get(timeout=.01)#step(actions[0])
+                        wait = False
+                    except queue.Empty:
+                       a=1#continue# print("Fila de ações está vazia, aguardando...")
+        
         for global_step in range(self.total_timesteps):
             # ALGO LOGIC: put action logic here
             if global_step < self.learning_starts:
@@ -123,20 +138,30 @@ class TD3_agent():
                     actions += torch.normal(0, self.actor.action_scale * self.exploration_noise)
                     actions = actions.cpu().numpy().clip(self.env.action_space.low, self.env.action_space.high)
 
-            # TRY NOT TO MODIFY: execute the game and log data.
-                    
-            with self.action_lock:
-                self.action_queue.put(actions)
-            with self.obs_lock:
-                next_obs, rewards, termination, infos, _ = self.obs_queue.get()#step(actions[0])
+
+            wait = True
+            while wait:
+                time.sleep(0.0001)
+                with self.obs_lock:
+                    try:
+                        next_obs, rewards, termination = self.obs_queue.get(timeout=.01)#step(actions[0])
+                        wait = False
+                    except queue.Empty:
+                        a=1
             episode_reward += rewards
             episode_timesteps += 1
             
             # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
             real_next_obs = next_obs.copy()
-            rb.add(obs, real_next_obs, actions, rewards, termination, infos)
+            rb.add(obs, real_next_obs, actions, rewards, termination, False)
             if episode_timesteps > 2.5e2:
                     termination = True  
+            # TRY NOT TO MODIFY: execute the game and log data.
+            with self.action_lock:
+                if not self.action_queue.full():
+                    self.action_queue.put((actions, episode_timesteps))
+                else:
+                    print("Fila de ações está cheia!")
             if termination:
                 print(f"Total T: {global_step} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}")
                 if self.enable_logging:
@@ -144,12 +169,9 @@ class TD3_agent():
                     self.writer.add_scalar("charts/episodic_length", episode_timesteps, global_step)
                 # Reset environment
                 new_env = False
-                start = False
-                while  start  == False:
-                    with self.start_lock:
-                        if self.start_queue.get() == 1:
-                            start = True
-                            self.start_queue.put(0)
+
+                with self.start_lock:
+                        self.start_queue.put(0)
                 episode_reward = 0
                 episode_timesteps = 0
                 episode_num += 1  
