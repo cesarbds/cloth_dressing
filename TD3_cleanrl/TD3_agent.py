@@ -76,6 +76,7 @@ class TD3_agent():
         self.total_timesteps = total_timesteps
         self.device = device
         self.run_name = run_name
+        self.gamma = gamma
 
 
     def train(self):
