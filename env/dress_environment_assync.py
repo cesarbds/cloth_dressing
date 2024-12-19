@@ -40,8 +40,8 @@ class DressEnv(gym.Env):
         self.velocities_particles = np.zeros([170,3])
         self.image_encoder = get_encoder_network([4,256,256])
         # Load the state dict with a prefix fix
-        #state_dict = torch.load('astral-wildflower-27_ENCODER.pth', weights_only=True)
-        #new_state_dict = {key.replace("_encoder.", ""): value for key, value in state_dict.items()}
+        state_dict = torch.load('astral-wildflower-27_ENCODER.pth', weights_only=True)
+        new_state_dict = {key.replace("_encoder.", ""): value for key, value in state_dict.items()}
 
         # Scaler
         # Carregar o scaler salvo
@@ -55,7 +55,7 @@ class DressEnv(gym.Env):
         
         # Load the modified state dict
         self.rgb_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        #self.image_encoder.load_state_dict(new_state_dict, strict=True)
+        self.image_encoder.load_state_dict(new_state_dict, strict=True)
         self.image_encoder.to('cuda'),
         self.joint_positions = np.zeros(7)
         
@@ -89,14 +89,15 @@ class DressEnv(gym.Env):
         # Capture the camera image at the robot's hand
         self.camera.GetRGB(intrinsic_matrix=intrinsics)
         self.camera.GetDepthEXR(intrinsic_matrix=intrinsics)
-        self.cloth.GetParticles()
         self.env.step()
         self.env.t += round(self.env.data['fixed_delta_time'],2) 
         rgb = np.frombuffer(self.camera.data["rgb"], dtype=np.uint8)
         rgb = cv2.imdecode(rgb, cv2.IMREAD_COLOR)
         self.depth = self.camera.data["depth_exr"]
         depth = self.exr_to_image()
-        particles = self.cloth.data.get('particles', None)
+        self.cloth.GetParticles()
+        self.env.step()
+        particles = self.cloth.data.get('particles')
         self.velocities_particles = 0#(np.array(particles) - np.array(self.particles_t)) / (self.env.t - self.t)
         self.acceleration_particles = 0#(np.array(self.velocities_particles) - np.array(self.velocities_particles_t)) / (self.env.t - self.t)
         self.particles_t = particles
@@ -173,7 +174,8 @@ class DressEnv(gym.Env):
             acceleration_particles = torch.tensor(self.acceleration_particles).reshape(-1).to('cuda')
             gripper_joint_positions = torch.tensor(self.gripper.data['joint_positions']).to('cuda')
             human_joints = torch.tensor(self.human_joints).to('cuda')
-
+            particles = torch.tensor(self.particles_t).flatten().to('cuda')
+            print(f"Particles shape: {particles.shape}")
             normal, center_point, _, self.previous_distance = reward.distance_cloth_to_finger(self.particles_t, previous_distance = self.previous_distance, proximity_threshold = 0.03)
             gripper_position = np.array(self.gripper.data['position'])  # Garantir que seja 1D
             gripper_orientation = np.array(self.gripper.data['rotation'])
@@ -183,7 +185,7 @@ class DressEnv(gym.Env):
             observations = torch.cat((
                 self.dynamic_latent_space_t.detach(), 
                 joint_positions.detach(), 
-                acceleration_particles.detach(),  
+                particles.detach(),  
                 gripper_joint_positions.detach(), 
                 human_joints.detach()
             ), dim=0).cpu().numpy()  # or dim=1, as required by your model
@@ -208,12 +210,15 @@ class DressEnv(gym.Env):
         # Use torch.no_grad() to avoid tracking gradients
         with torch.no_grad():
             # Apply action to robot position, normalize angles
-            self.joint_positions = normalize_angles(self.robot.data['joint_positions'] + np.array(action[:7]))
+            if len(action.shape) == 2:
+                self.joint_positions = normalize_angles(self.robot.data['joint_positions'] +  action[0][:7])
+            else:
+                self.joint_positions = normalize_angles(self.robot.data['joint_positions'] +  action[:7])
 
             # Set joint positions for the robot
             result = [x * 180 for x in self.joint_positions]
             self.robot.SetJointPosition(result)
-            self.env.step(4)
+            self.env.step(3)
             # Capture scene data
             depth, rgb, self.particles_t, self.velocities_particles, self.acceleration_particles = self.capture_scene_data()
             cv2.imshow("show", rgb)
@@ -239,13 +244,13 @@ class DressEnv(gym.Env):
             # Update dynamic latent space
             self.dynamic_latent_space = torch.cat((self.dynamic_latent_space[:, :3, :], latent_space2.unsqueeze(1)), dim=1)
             self.dynamic_latent_space_t = self.dynamic_latent_space.reshape(1, -1).reshape(-1).cpu()
-
+            
             # Collect joint and other state data
             joint_positions = torch.tensor(self.robot.data['joint_positions']).cpu()
             acceleration_particles = torch.tensor(self.acceleration_particles).reshape(-1).cpu()
             gripper_joint_positions = torch.tensor(self.gripper.data['joint_positions']).cpu()
             human_joints = torch.tensor(self.human_joints).cpu()
-
+            particles = torch.tensor(self.particles_t).flatten().cpu()
             gripper_position = np.array(self.gripper.data['position'])  # Ensure it's 1D
             gripper_orientation = np.array(self.gripper.data['rotation'])
             joint_positions2 = np.array(self.robot.data['joint_positions'])  # Ensure it's 1D
@@ -255,7 +260,7 @@ class DressEnv(gym.Env):
             observations = torch.cat((
                 self.dynamic_latent_space_t, 
                 joint_positions, 
-                acceleration_particles,  
+                particles,  
                 gripper_joint_positions, 
                 human_joints
             ), dim=0).cpu().numpy()
