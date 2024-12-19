@@ -104,7 +104,7 @@ class TD3_agent():
                     actions = actions.cpu().numpy().clip(self.env.action_space.low, self.env.action_space.high)
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, rewards, termination, infos, _ = self.env.step(actions[0])
+            next_obs, rewards, termination, infos, _ = self.env.step(actions)
             episode_reward += rewards
             episode_timesteps += 1
             
