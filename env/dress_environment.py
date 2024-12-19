@@ -210,7 +210,11 @@ class DressEnv(gym.Env):
         if not hasattr(self, 'previous_distance'):
             self.previous_distance = None 
         # Apply the action to the robot position
-        self.joint_positions = normalize_angles(self.robot.data['joint_positions'] + action[:7])
+        if len(action.shape) == 2:
+            self.joint_positions = normalize_angles(self.robot.data['joint_positions'] +  action[0][:7])
+        else:
+            self.joint_positions = normalize_angles(self.robot.data['joint_positions'] +  action[:7])
+
         # if action[7] <= 0:
         #     self.gripper.GripperOpen()
         # else:
