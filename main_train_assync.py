@@ -72,7 +72,7 @@ if __name__ == "__main__":
 
     # Initialize the environment
     env = DressEnv()
-    agent = TD3_agent(env=env, seed=seed, action_queue = action_queue, obs_queue = obs_queue, action_lock = action_lock, obs_lock = obs_lock, start_queue = start_queue, start_lock = start_lock, reset_queue=reset_queue)
+    agent = TD3_agent(env=env, enable_logging = True, seed=seed, action_queue = action_queue, obs_queue = obs_queue, action_lock = action_lock, obs_lock = obs_lock, start_queue = start_queue, start_lock = start_lock, reset_queue=reset_queue)
     # Create a thread
     thread = threading.Thread(target=run_environment, args=(env,), daemon=True)
     thread2 = threading.Thread(target=agent.train)
