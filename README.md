@@ -1,4 +1,6 @@
-# Cloth-grasp Phy-robo-care Track 1
+# Cloth-grasp RCareWorld PhyRC Challenge Track 1
+
+This README will present the solution implemented by Team Unichampions, composed of Unicamp and UFJF students. The RCareWorld PhyRC Challenge page can be found in this [link](https://drive.google.com/file/d/1T8tCzrUzlas_fWB-qjqmGC-mZrHowwUN/view?usp=drive_link).
 
 ## Conda environment
 
